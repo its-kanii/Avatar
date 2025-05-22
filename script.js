@@ -24,22 +24,23 @@ async function loadModelWithRetry(path, retries = 3) {
 }
 
 // Load all models with error handling
+// Replace your loadModels() with this debug version
 async function loadModels() {
-  try {
-    // Test with direct URL first
-    const testGLB = await loader.loadAsync(
-      "https://its-kanii.github.io/Avatar/models/pointing.glb"
-    );
-    console.log("Direct URL load success!", testGLB);
-    scene.add(testGLB.scene);
+  const models = [
+    { name: "pointing", path: "https://its-kanii.github.io/Avatar/models/pointing.glb" },
+    // ... other models
+  ];
 
-    // If works, switch back to relative paths for other models
-    const gltf = await loader.loadAsync("models/wave.glb");
-    console.log("Relative path also works", gltf);
-    
-  } catch (error) {
-    console.error("Load failed:", error);
-    alert("Model failed to load. Check console.");
+  for (const model of models) {
+    try {
+      console.log("Trying to load:", model.path);
+      const gltf = await loader.loadAsync(model.path);
+      console.log("Success!", model.name);
+      avatars[model.name] = gltf.scene;
+      scene.add(avatars[model.name]);
+    } catch (error) {
+      console.error("FAILED:", model.name, error);
+    }
   }
 }
 
