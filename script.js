@@ -25,21 +25,23 @@ async function loadModelWithRetry(path, retries = 3) {
 
 // Load all models with error handling
 async function loadModels() {
-  const models = [
-    { name: "pointing", path: "./models/pointing.glb" },
-    { name: "wave", path: "./models/wave.glb" },
-    { name: "clap", path: "./models/clap.glb" },
-    { name: "greetings", path: "./models/greetings.glb" },
-  ];
-
   try {
-    for (const model of models) {
-      console.log(`Loading model: ${model.path}`);
-      const gltf = await loadModelWithRetry(model.path);
-      avatars[model.name] = gltf.scene;
-      avatars[model.name].visible = false;
-      scene.add(avatars[model.name]);
-    }
+    // Test with direct URL first
+    const testGLB = await loader.loadAsync(
+      "https://its-kanii.github.io/Avatar/models/pointing.glb"
+    );
+    console.log("Direct URL load success!", testGLB);
+    scene.add(testGLB.scene);
+
+    // If works, switch back to relative paths for other models
+    const gltf = await loader.loadAsync("models/wave.glb");
+    console.log("Relative path also works", gltf);
+    
+  } catch (error) {
+    console.error("Load failed:", error);
+    alert("Model failed to load. Check console.");
+  }
+}
 
     // Set default avatar
     currentAvatar = avatars["greetings"];
