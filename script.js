@@ -1,3 +1,4 @@
+// Three.js setup
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("canvas") });
@@ -6,30 +7,61 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 const loader = new THREE.GLTFLoader();
 let currentAvatar;
 const avatars = {};
+let modelsLoaded = false;
 
-// Load all models
+// Error handling wrapper for GLTFLoader
+async function loadModelWithRetry(path, retries = 3) {
+  try {
+    const gltf = await loader.loadAsync(path);
+    return gltf;
+  } catch (error) {
+    if (retries > 0) {
+      console.warn(`Retrying load for ${path}... (${retries} attempts left)`);
+      return loadModelWithRetry(path, retries - 1);
+    }
+    throw error;
+  }
+}
+
+// Load all models with error handling
 async function loadModels() {
   const models = [
-    { name: "pointing", path: "models/pointing.glb" },
-    { name: "wave", path: "models/wave.glb" },
-    { name: "clap", path: "models/clap.glb" },
-    { name: "greetings", path: "models/greetings.glb" },
+    { name: "pointing", path: "./models/pointing.glb" },
+    { name: "wave", path: "./models/wave.glb" },
+    { name: "clap", path: "./models/clap.glb" },
+    { name: "greetings", path: "./models/greetings.glb" },
   ];
 
-  for (const model of models) {
-    const gltf = await loader.loadAsync(model.path);
-    avatars[model.name] = gltf.scene;
-    avatars[model.name].visible = false; // Hide initially
-    scene.add(avatars[model.name]);
-  }
+  try {
+    for (const model of models) {
+      console.log(`Loading model: ${model.path}`);
+      const gltf = await loadModelWithRetry(model.path);
+      avatars[model.name] = gltf.scene;
+      avatars[model.name].visible = false;
+      scene.add(avatars[model.name]);
+    }
 
-  // Set default avatar
-  currentAvatar = avatars["greetings"];
-  currentAvatar.visible = true;
+    // Set default avatar
+    currentAvatar = avatars["greetings"];
+    currentAvatar.visible = true;
+    modelsLoaded = true;
+    console.log("All models loaded successfully!");
+  } catch (error) {
+    console.error("Failed to load models:", error);
+    alert(`Error loading 3D models. Please check console for details.`);
+  }
 }
+
 loadModels();
 
-camera.position.z = 5;
+// Animation loop
+function animate() {
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera);
+}
+animate();
+
+// MediaPipe Hands setup
 const hands = new Hands({
   locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
 });
@@ -41,57 +73,84 @@ hands.setOptions({
   minTrackingConfidence: 0.7,
 });
 
-const cameraElement = new Camera(document.getElementById("canvas"), {
-  onFrame: async () => {
-    await hands.send({ image: cameraElement.video });
-  },
-  width: 1280,
-  height: 720,
-});
-cameraElement.start();
+// Camera setup with error handling
+let cameraElement;
+try {
+  cameraElement = new Camera(document.getElementById("canvas"), {
+    onFrame: async () => {
+      if (modelsLoaded) { // Only process if models are loaded
+        await hands.send({ image: cameraElement.video });
+      }
+    },
+    width: 1280,
+    height: 720,
+  });
+  cameraElement.start();
+} catch (error) {
+  console.error("Camera initialization failed:", error);
+  alert("Could not access camera. Please ensure permissions are granted.");
+}
+
+// Gesture detection
 hands.onResults((results) => {
-  if (!results.multiHandLandmarks) return;
+  if (!modelsLoaded || !results.multiHandLandmarks) return;
 
   const landmarks = results.multiHandLandmarks[0];
-  const fingersUp = countFingersUp(landmarks);
-
-  // Gesture detection logic
-  if (isPointing(landmarks)) {
-    switchAvatar("pointing");
-  } else if (isWaving(landmarks)) {
-    switchAvatar("wave");
-  } else if (isClapping(landmarks)) {
-    switchAvatar("clap");
-  } else {
-    switchAvatar("greetings");
+  
+  // Improved gesture detection with null checks
+  if (landmarks && landmarks.length >= 21) { // MediaPipe provides 21 landmarks
+    if (isPointing(landmarks)) {
+      switchAvatar("pointing");
+    } else if (isWaving(landmarks)) {
+      switchAvatar("wave");
+    } else if (isClapping(landmarks)) {
+      switchAvatar("clap");
+    } else {
+      switchAvatar("greetings");
+    }
   }
 });
 
-// Helper: Switch between avatars
+// Avatar switching with safety checks
 function switchAvatar(name) {
-  if (currentAvatar === avatars[name]) return;
+  if (!avatars[name] || currentAvatar === avatars[name]) return;
   
   currentAvatar.visible = false;
   currentAvatar = avatars[name];
   currentAvatar.visible = true;
 }
 
-// Helper: Detect gestures (simplified)
+// Enhanced gesture detection functions
 function isPointing(landmarks) {
-  // Check if index finger is extended, others closed
-  // (Customize based on your needs)
-  return landmarks[8].y < landmarks[6].y && landmarks[12].y > landmarks[10].y;
+  // Check if index finger is extended and others are closed
+  const indexExtended = landmarks[8].y < landmarks[6].y; // Tip below PIP joint
+  const middleClosed = landmarks[12].y > landmarks[10].y;
+  const ringClosed = landmarks[16].y > landmarks[14].y;
+  const pinkyClosed = landmarks[20].y > landmarks[18].y;
+  const thumbClosed = landmarks[4].x > landmarks[3].x;
+  
+  return indexExtended && middleClosed && ringClosed && pinkyClosed && thumbClosed;
 }
 
 function isWaving(landmarks) {
-  // Check if hand is moving side-to-side (requires tracking motion)
-  return false; // Implement logic
+  // Implement based on hand motion over time
+  return false;
 }
 
 function isClapping(landmarks) {
-  // Check if both hands are close together (if tracking 2 hands)
-  return false; // Implement logic
+  // Implement based on two hands proximity
+  return false;
 }
+
+// Handle window resize
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// Initial camera position
+camera.position.z = 5;
 
 
 
